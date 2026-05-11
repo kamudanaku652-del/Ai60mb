@@ -1,70 +1,65 @@
-<svg class="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-          <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-        </svg>
-        <div>
-          <p class="font-semibold text-amber-400 text-sm">Perangkat Low RAM Terdeteksi</p>
-          <p class="text-amber-200/80 text-xs mt-1">RAM kamu < 4GB. Model ~300MB. Tutup tab lain & gunakan Chrome 113+ untuk performa terbaik. Kemungkinan lag/crash tinggi.</p>
-        </div>
-      </div>
-    </div>
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini Code AI</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #1e1e1e; color: white; }
+        #output { background: #2d2d2d; padding: 15px; border-radius: 8px; white-space: pre-wrap; margin-top: 10px; border: 1px solid #444; }
+        button { padding: 10px 20px; cursor: pointer; background: #007bff; color: white; border: none; border-radius: 5px; }
+        button:disabled { background: #555; }
+    </style>
+</head>
+<body>
 
-    <!-- Model Status -->
-    <div id="modelStatus" class="glass rounded-xl p-5 mb-4">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-3">
-          <div id="statusDot" class="w-3 h-3 rounded-full bg-red-500"></div>
-          <p class="font-medium text-sm" id="statusText">Model belum dimuat</p>
-        </div>
-        <p class="text-xs text-slate-400" id="modelSize">~300MB</p>
-      </div>
-      
-      <div id="progressContainer" class="hidden">
-        <div class="flex justify-between text-xs mb-2">
-          <span id="progressText" class="text-slate-400">Mengunduh model...</span>
-          <span id="progressPercent" class="text-slate-300 font-mono">0%</span>
-        </div>
-        <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden relative">
-          <div id="progressBar" class="h-full gradient-bg transition-all duration-300 relative" style="width: 0%">
-            <div class="progress-shimmer absolute inset-0"></div>
-          </div>
-        </div>
-        <p class="text-xs text-slate-500 mt-2">Cache otomatis di browser via IndexedDB. Download sekali untuk selamanya.</p>
-      </div>
-      
-      <button id="loadModelBtn" class="w-full mt-4 gradient-bg px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-        Load Model Qwen2-0.5B
-      </button>
-    </div>
+    <h2>AI Code Generator (Local Browser)</h2>
+    <textarea id="prompt" rows="3" style="width: 100%;" placeholder="Tulis instruksi code di sini..."></textarea><br><br>
+    <button id="generate-btn">Generate Code</button>
 
-    <!-- Chat Container -->
-    <div id="chatContainer" class="glass rounded-xl mb-4 overflow-hidden">
-      <div id="chatBox" class="h-[400px] md:h-[500px] overflow-y-auto p-4 md:p-6 space-y-4">
-        <div class="text-center text-slate-500 text-sm py-8">
-          <svg class="w-16 h-16 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path>
-          </svg>
-          <p>Mulai chat setelah model selesai dimuat</p>
-          <p class="text-xs mt-2">Contoh: "Buatkan landing page sederhana dengan Tailwind"</p>
-        </div>
-      </div>
-    </div>
+    <div id="status">Status: Menunggu instruksi...</div>
+    <div id="output">// Hasil code akan muncul di sini...</div>
 
-    <!-- Input Area -->
-    <div class="glass rounded-xl p-4">
-      <div class="flex flex-col md:flex-row gap-3">
-        <textarea 
-          id="promptInput" 
-          placeholder="Load model dulu untuk mulai coding..."
-          disabled
-          class="flex-1 bg-slate-900 border-slate-700 rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed mono"
-          rows="3"
-        ></textarea>
-        <button 
-          id="generateBtn" 
-          disabled
-          class="gradient-bg px-6 py-3 rounded-lg font-semibold hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 md:w-auto"
-        >
-          <span id="generateText">Generate</span>
-          <svg id="generateIcon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
-          </svg>
+    <!-- Import Transformers.js dari CDN -->
+    <script type="module">
+        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
+
+        const status = document.getElementById('status');
+        const output = document.getElementById('output');
+        const btn = document.getElementById('generate-btn');
+
+        let generator;
+
+        // Inisialisasi model
+        async function init() {
+            status.textContent = 'Status: Mendownload model (sekitar 30MB-70MB)...';
+            // Menggunakan model TinyCoder yang sangat ringan
+            generator = await pipeline('text-generation', 'Xenova/tiny_starcoder_py', {
+                device: 'webgpu', // Gunakan 'wasm' jika tidak ada GPU
+            });
+            status.textContent = 'Status: Model siap!';
+        }
+
+        init();
+
+        btn.addEventListener('click', async () => {
+            const promptText = document.getElementById('prompt').value;
+            if (!promptText) return;
+
+            btn.disabled = true;
+            status.textContent = 'Status: Sedang berpikir...';
+            output.textContent = 'Generating...';
+
+            const results = await generator(promptText, {
+                max_new_tokens: 100,
+                temperature: 0.7,
+                do_sample: true,
+            });
+
+            output.textContent = results[0].generated_text;
+            status.textContent = 'Status: Selesai!';
+            btn.disabled = false;
+        });
+    </script>
+</body>
+</html>
