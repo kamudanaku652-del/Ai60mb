@@ -1,71 +1,95 @@
 <!DOCTYPE html>
-<html lang="id">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>MiniLM Embedding</title>
-  <style>
-    body { font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 0 20px; }
-    textarea { width: 100%; height: 80px; padding: 10px; margin: 10px 0; }
-    button { padding: 10px 20px; background: #0084ff; color: white; border: none; border-radius: 8px; }
-    pre { background: #f4f4f4; padding: 10px; overflow-x: auto; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kitte AI - Offline</title>
+<style>
+body{background:#0a0a0a;color:#eee;font-family:monospace;margin:0;padding:10px}
+#tabs{display:flex;gap:5px;margin-bottom:10px}
+#tabs button{flex:1;padding:12px;background:#1a1a1a;color:#888;border:1px solid #333}
+#tabs button.active{background:#fff;color:#000}
+.view{display:none}
+.view.active{display:block}
+textarea{width:100%;background:#111;color:#0f0;border:1px solid #333;padding:10px;box-sizing:border-box}
+#chat{height:60vh;overflow-y:auto;background:#111;padding:10px;margin-bottom:10px;white-space:pre-wrap}
+#genBtn{width:100%;padding:14px;background:#fff;color:#000;border:none;font-weight:bold;margin:5px 0}
+canvas,pre{max-width:100%;background:#111;padding:10px;overflow:auto}
+#status{font-size:11px;color:#666;margin:5px 0}
+</style>
 </head>
 <body>
-  <h2>Xenova/all-MiniLM-L6-v2</h2>
-  <p id="status">Loading model ~23MB...</p>
-  
-  <textarea id="input1" placeholder="Kalimat 1">Aku suka coding Python</textarea>
-  <textarea id="input2" placeholder="Kalimat 2">Aku senang ngoding pakai Python</textarea>
-  <button id="btn" disabled>Bandingkan Kemiripan</button>
-  
-  <h3>Hasil:</h3>
-  <pre id="output">Belum ada hasil</pre>
+<h3>KITTE v1 - Chat | Image | Code</h3>
+<div id="status">Load pertama: download 2 model ~1.2GB ke cache HP...</div>
 
-  <script type="module">
-    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
-    env.allowLocalModels = false;
+<div id="tabs">
+  <button onclick="tab('chat')" class="active">CHAT</button>
+  <button onclick="tab('image')">IMAGE</button>
+  <button onclick="tab('code')">CODE</button>
+</div>
 
-    let extractor;
-    const status = document.getElementById('status');
-    const btn = document.getElementById('btn');
-    
-    // Fungsi cosine similarity
-    function cosineSim(A, B) {
-      let dot = 0, normA = 0, normB = 0;
-      for (let i = 0; i < A.length; i++) {
-        dot += A[i] * B[i];
-        normA += A[i] * A[i];
-        normB += B[i] * B[i];
-      }
-      return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-    }
+<div id="chatView" class="view active">
+  <div id="chat">Kitte: Siap. Aku jalan offline di HP kamu.</div>
+  <textarea id="chatIn" rows="2" placeholder="Ketik pesan..."></textarea>
+  <button id="genBtn" onclick="chatSend()">KIRIM</button>
+</div>
 
-    (async () => {
-      extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-      status.textContent = 'Model siap. Silakan input 2 kalimat';
-      btn.disabled = false;
-    })();
+<div id="imageView" class="view">
+  <textarea id="imgPrompt" rows="2" placeholder="kucing pake blangkon"></textarea>
+  <button id="genBtn" onclick="imgGen()">GENERATE GAMBAR</button>
+  <canvas id="imgOut"></canvas>
+</div>
 
-    btn.onclick = async () => {
-      const text1 = document.getElementById('input1').value;
-      const text2 = document.getElementById('input2').value;
-      status.textContent = 'Lagi proses...';
-      
-      const out1 = await extractor(text1, { pooling: 'mean', normalize: true });
-      const out2 = await extractor(text2, { pooling: 'mean', normalize: true });
-      
-      const sim = cosineSim(out1.data, out2.data);
-      
-      document.getElementById('output').textContent = 
-`Kalimat 1: ${text1}
-Vektor: [${out1.data.slice(0,5).map(x=>x.toFixed(3))}...] 384 dimensi
+<div id="codeView" class="view">
+  <textarea id="codePrompt" rows="2" placeholder="bikin function python fibonacci"></textarea>
+  <button id="genBtn" onclick="codeGen()">GENERATE CODE</button>
+  <pre id="codeOut"></pre>
+</div>
 
-Kalimat 2: ${text2}
-Vektor: [${out2.data.slice(0,5).map(x=>x.toFixed(3))}...] 384 dimensi
+<script type="module">
+// 1. Tembak ke Cache HP pake Service Worker
+if('serviceWorker' in navigator)navigator.serviceWorker.register(URL.createObjectURL(new Blob([`self.addEventListener('install',e=>self.skipWaiting());self.addEventListener('fetch',e=>e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request))))`])));
 
-Skor Kemiripan: ${(sim * 100).toFixed(2)}%`;
-      status.textContent = 'Selesai';
-    };
-  </script>
+import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.2';
+
+// 2. Load 2 Model AI Konvensional ke RAM. Total ~1.5GB RAM usage
+const status=document.getElementById('status');
+let chatPipe, imgPipe;
+
+status.innerText='Loading Chat model 700MB...';
+chatPipe = await pipeline('text-generation','onnx-community/Qwen2.5-0.5B-Instruct',{device:'webgpu',dtype:'q4'});
+
+status.innerText='Loading Image model 500MB...';
+imgPipe = await pipeline('text-to-image','onnx-community/lcm-dreamshaper-v7-onnx',{device:'webgpu',dtype:'q8'});
+
+status.innerText='Kitte Online. Matikan data juga bisa. RAM: 4GB aman.';
+
+// 3. Fungsi-fungsi Kitte
+window.tab=(v)=>{document.querySelectorAll('.view,.active').forEach(e=>e.classList.remove('active'));document.getElementById(v+'View').classList.add('active');event.target.classList.add('active')}
+
+window.chatSend=async()=>{
+  const i=document.getElementById('chatIn');const o=document.getElementById('chat');
+  const msg=i.value;i.value='';o.innerText+=`\n\nKamu: ${msg}\nKitte:...`;
+  const res=await chatPipe([{role:'user',content:msg}],{max_new_tokens:256});
+  o.innerText=o.innerText.replace('...',res[0].generated_text.at(-1).content);o.scrollTop=o.scrollHeight;
+}
+
+window.imgGen=async()=>{
+  status.innerText='Generate gambar... 15 detik';
+  const p=document.getElementById('imgPrompt').value;
+  const res=await imgPipe(p,{num_inference_steps:4,width:512,height:512});
+  const cv=document.getElementById('imgOut');cv.width=512;cv.height=512;
+  cv.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(res.data),512,512),0,0);
+  status.innerText='Jadi!';
+}
+
+window.codeGen=async()=>{
+  const i=document.getElementById('codePrompt');const o=document.getElementById('codeOut');
+  o.innerText='Kitte nulis code...';
+  const prompt=`You are a coding assistant. Only output code. Task: ${i.value}`;
+  const res=await chatPipe([{role:'user',content:prompt}],{max_new_tokens:512});
+  o.innerText=res[0].generated_text.at(-1).content;
+}
+</script>
 </body>
 </html>
