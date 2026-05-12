@@ -1,264 +1,896 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en" class="dark">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bu Tejo Coder 3M</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
-            background: #0d1117; 
-            color: #e6edf3; 
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        .header {
-            background: #161b22;
-            padding: 16px 20px;
-            border-bottom: 1px solid #30363d;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .header h1 { font-size: 18px; }
-        .badge {
-            background: #238636;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-        .chat-container {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-        .msg {
-            max-width: 85%;
-            padding: 12px 16px;
-            border-radius: 12px;
-            line-height: 1.5;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-        .msg.user {
-            background: #1f6feb;
-            align-self: flex-end;
-            margin-left: auto;
-        }
-        .msg.ai {
-            background: #21262d;
-            border: 1px solid #30363d;
-            align-self: flex-start;
-        }
-        .msg pre {
-            background: #0d1117;
-            padding: 12px;
-            border-radius: 6px;
-            overflow-x: auto;
-            margin: 8px 0;
-            border: 1px solid #30363d;
-        }
-        .msg code {
-            font-family: 'Consolas', 'Monaco', monospace;
-            font-size: 13px;
-        }
-        .copy-btn {
-            background: #30363d;
-            border: 1px solid #484f58;
-            color: #e6edf3;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            cursor: pointer;
-            float: right;
-            margin-bottom: 8px;
-        }
-        .copy-btn:hover { background: #484f58; }
-        .input-area {
-            background: #161b22;
-            border-top: 1px solid #30363d;
-            padding: 16px 20px;
-        }
-        .input-box {
-            display: flex;
-            gap: 8px;
-            background: #0d1117;
-            border: 1px solid #30363d;
-            border-radius: 8px;
-            padding: 8px;
-        }
-        #prompt {
-            flex: 1;
-            background: transparent;
-            border: none;
-            color: #e6edf3;
-            font-size: 14px;
-            resize: none;
-            outline: none;
-            max-height: 120px;
-        }
-        #generate-btn {
-            background: #238636;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 8px 16px;
-            cursor: pointer;
-            font-weight: 600;
-            align-self: flex-end;
-        }
-        #generate-btn:disabled { background: #30363d; cursor: not-allowed; }
-        #status {
-            font-size: 12px;
-            color: #7d8590;
-            margin-top: 8px;
-            text-align: center;
-        }
-        .typing {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #7d8590;
-            animation: blink 1.4s infinite both;
-            margin-left: 4px;
-        }
-        @keyframes blink {
-            0%, 80%, 100% { opacity: 0; }
-            40% { opacity: 1; }
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>🤏 Bu Tejo Coder 3M</h1>
-        <span class="badge">LOCAL</span>
-    </div>
+<!-- Playables SDK -->
+<script>// Playables SDK v1.0.0
+// Game lifecycle bridge: rAF-based game-ready detection + event communication
+(function() {
+  'use strict';
 
-    <div class="chat-container" id="chat">
-        <div class="msg ai">Halo kak! Aku Bu Tejo versi ngoding. Tanya apa aja, tapi kalo susah jawabnya: <code>cabut ke hutan aja kak</code> 🌲</div>
-    </div>
+  // Idempotency: skip if already initialized (e.g., server-side injection
+  // followed by client-side inject-javascript via the Bloks webview component).
+  if (window.playablesSDK) return;
 
-    <div class="input-area">
-        <div class="input-box">
-            <textarea id="prompt" rows="1" placeholder="Minta bikinin fungsi Python, HTML, dll..."></textarea>
-            <button id="generate-btn">Kirim</button>
-        </div>
-        <div id="status">Status: Menunggu model...</div>
-    </div>
+  var HANDLER_NAME = 'playablesGameEventHandler';
+  var ANDROID_BRIDGE_NAME = '_MetaPlayablesBridge';
+  var RAF_FRAME_THRESHOLD = 3;
 
-    <script type="module">
-        import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1';
+  var gameReadySent = false;
+  var firstInteractionSent = false;
+  var errorSent = false;
+  var frameCount = 0;
+  var originalRAF = window.requestAnimationFrame;
 
-        const status = document.getElementById('status');
-        const chat = document.getElementById('chat');
-        const btn = document.getElementById('generate-btn');
-        const promptEl = document.getElementById('prompt');
+  // --- Transport Layer ---
 
-        let generator;
+  function hasIOSBridge() {
+    return !!(window.webkit &&
+              window.webkit.messageHandlers &&
+              window.webkit.messageHandlers[HANDLER_NAME]);
+  }
 
-        // Auto-resize textarea
-        promptEl.addEventListener('input', function() {
-            this.style.height = 'auto';
-            this.style.height = this.scrollHeight + 'px';
-        });
+  function hasAndroidBridge() {
+    return !!(window[ANDROID_BRIDGE_NAME] &&
+              typeof window[ANDROID_BRIDGE_NAME].postEvent === 'function');
+  }
 
-        // Enter to send, Shift+Enter = new line
-        promptEl.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                btn.click();
-            }
-        });
+  function isInIframe() {
+    return !!(window.parent && window.parent !== window);
+  }
 
-        function addMessage(text, isUser = false) {
-            const msgDiv = document.createElement('div');
-            msgDiv.className = `msg ${isUser ? 'user' : 'ai'}`;
-            
-            // Detect code blocks ```python ... ```
-            const codeBlockRegex = /```(\w+)?\n([\s\S]*?)```/g;
-            let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            
-            html = html.replace(codeBlockRegex, (match, lang, code) => {
-                const id = 'code-' + Math.random().toString(36).substr(2, 9);
-                return `<button class="copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('${id}').textContent); this.textContent='Copied!'">Copy</button><pre><code id="${id}">${code.trim()}</code></pre>`;
+  function sendEvent(eventName, payload) {
+    var message = {
+      type: eventName,
+      payload: payload || {},
+      timestamp: Date.now()
+    };
+
+    if (hasIOSBridge()) {
+      try {
+        window.webkit.messageHandlers[HANDLER_NAME].postMessage(message);
+      } catch (e) { /* ignore */ }
+      return;
+    }
+
+    if (hasAndroidBridge()) {
+    try {
+      var p = payload || {};
+      p.__secureToken = window.__fbAndroidBridgeAuthToken || '';
+      p.timestamp = message.timestamp;
+      window[ANDROID_BRIDGE_NAME].postEvent(
+        eventName,
+        JSON.stringify(p)
+      );
+    } catch (e) { /* ignore */ }
+    return;
+  }
+
+    if (isInIframe()) {
+      try {
+        window.parent.postMessage(message, '*');
+      } catch (e) { /* ignore */ }
+      return;
+    }
+  }
+
+  // --- rAF Game-Ready Detection ---
+
+  function onFrame() {
+    if (gameReadySent) return;
+
+    frameCount++;
+    if (frameCount >= RAF_FRAME_THRESHOLD) {
+      gameReadySent = true;
+      sendEvent('game_ready', {
+        frame_count: frameCount,
+        detected_at: Date.now()
+      });
+      return;
+    }
+
+    originalRAF.call(window, onFrame);
+  }
+
+  if (originalRAF) {
+    window.requestAnimationFrame = function(callback) {
+      if (!gameReadySent) {
+        return originalRAF.call(window, function(timestamp) {
+          frameCount++;
+          if (frameCount >= RAF_FRAME_THRESHOLD && !gameReadySent) {
+            gameReadySent = true;
+            sendEvent('game_ready', {
+              frame_count: frameCount,
+              detected_at: Date.now()
             });
-            
-            msgDiv.innerHTML = html;
-            chat.appendChild(msgDiv);
-            chat.scrollTop = chat.scrollHeight;
-        }
-
-        function addTyping() {
-            const typingDiv = document.createElement('div');
-            typingDiv.className = 'msg ai';
-            typingDiv.id = 'typing';
-            typingDiv.innerHTML = 'Bu Tejo ngetik<span class="typing"></span>';
-            chat.appendChild(typingDiv);
-            chat.scrollTop = chat.scrollHeight;
-        }
-
-        function removeTyping() {
-            const typing = document.getElementById('typing');
-            if (typing) typing.remove();
-        }
-
-        async function init() {
-            status.textContent = 'Status: Download model ~30MB... sabar ya';
-            try {
-                generator = await pipeline('text-generation', 'Xenova/tiny_starcoder_py', {
-                    device: 'webgpu',
-                });
-                status.textContent = 'Status: Model siap! Tanya aja';
-            } catch(e) {
-                status.textContent = 'Status: WebGPU gak support, pake CPU...';
-                generator = await pipeline('text-generation', 'Xenova/tiny_starcoder_py');
-                status.textContent = 'Status: Model siap! Agak lemot ya';
-            }
-        }
-
-        init();
-
-        btn.addEventListener('click', async () => {
-            const promptText = promptEl.value.trim();
-            if (!promptText || !generator) return;
-
-            addMessage(promptText, true);
-            promptEl.value = '';
-            promptEl.style.height = 'auto';
-            btn.disabled = true;
-            addTyping();
-            status.textContent = 'Status: Bu Tejo mikir...';
-
-            try {
-                const prompt = `# Python\n# ${promptText}\n`;
-                const results = await generator(prompt, {
-                    max_new_tokens: 200,
-                    temperature: 0.8,
-                    do_sample: true,
-                    repetition_penalty: 1.1
-                });
-
-                removeTyping();
-                let output = results[0].generated_text;
-                // Bersihin prompt dari output
-                output = output.replace(prompt, '').trim();
-                addMessage(`\`\`\`python\n${output}\n\`\`\``);
-                status.textContent = 'Status: Selesai';
-            } catch(e) {
-                removeTyping();
-                addMessage(`Error kak: ${e.message}\n\nCabut ke hutan aja kak 🌲`);
-                status.textContent = 'Status: Error';
-            }
-            
-            btn.disabled = false;
+          }
+          callback(timestamp);
         });
-    </script>
+      }
+      return originalRAF.call(window, callback);
+    };
+  }
+
+  // --- First User Interaction Detection ---
+
+  function setupFirstInteractionDetection() {
+    var events = ['touchstart', 'mousedown', 'keydown'];
+
+    function onFirstInteraction() {
+      if (firstInteractionSent) return;
+      firstInteractionSent = true;
+      sendEvent('user_interaction_start', null);
+
+      for (var i = 0; i < events.length; i++) {
+        document.removeEventListener(events[i], onFirstInteraction, true);
+      }
+    }
+
+    for (var i = 0; i < events.length; i++) {
+      document.addEventListener(events[i], onFirstInteraction, true);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupFirstInteractionDetection);
+  } else {
+    setupFirstInteractionDetection();
+  }
+
+  // --- Auto Error Capture ---
+
+  window.addEventListener('error', function(event) {
+    if (errorSent) return;
+    errorSent = true;
+    sendEvent('error', {
+      message: event.message || 'Unknown error',
+      source: event.filename || '',
+      lineno: event.lineno || 0,
+      colno: event.colno || 0,
+      auto_captured: true
+    });
+  });
+
+  window.addEventListener('unhandledrejection', function(event) {
+    if (errorSent) return;
+    errorSent = true;
+    var reason = event.reason;
+    sendEvent('error', {
+      message: (reason instanceof Error) ? reason.message : String(reason),
+      type: 'unhandled_promise_rejection',
+      auto_captured: true
+    });
+  });
+
+  // --- Public API ---
+
+  window.playablesSDK = {
+    complete: function(score) {
+      sendEvent('game_ended', {
+        score: score,
+        completed: true
+      });
+    },
+
+    error: function(message) {
+      if (errorSent) return;
+      errorSent = true;
+      sendEvent('error', {
+        message: message || 'Unknown error',
+        auto_captured: false
+      });
+    },
+
+    sendEvent: function(eventName, payload) {
+      if (!eventName || typeof eventName !== 'string') return;
+      sendEvent(eventName, payload);
+    }
+  };
+
+  // Kick off rAF detection in case no game code calls rAF immediately
+  if (originalRAF) {
+    originalRAF.call(window, onFrame);
+  }
+})();</script>
+<script>window.Intl=window.Intl||{};Intl.t=function(s){return(Intl._locale&&Intl._locale[s])||s;};</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kiite - Offline AI Assistant</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        'kiite': {
+          50: '#f0f9ff', 100: '#e0f2fe', 200: '#bae6fd', 300: '#7dd3fc',
+          400: '#38bdf8', 500: '#0ea5e9', 600: '#0284c7', 700: '#0369a1',
+          800: '#075985', 900: '#0c4a6e'
+        }
+      },
+      animation: {
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'slide-up': 'slideUp 0.3s ease-out',
+        'fade-in': 'fadeIn 0.5s ease-in'
+      },
+      keyframes: {
+        slideUp: {
+          '0%': { transform: 'translateY(10px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' }
+        },
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' }
+        }
+      }
+    }
+  }
+}
+</script>
+<style>
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #4b5563 #1f2937;
+  }
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: #4b5563;
+    border-radius: 3px;
+  }
+  .dark *::-webkit-scrollbar-thumb {
+    background-color: #374151;
+  }
+  .message-typing::after {
+    content: '▋';
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+  .gradient-text {
+    background: linear-gradient(135deg, #38bdf8 0%, #0ea5e9 50%, #0284c7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+</style>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300">
+<div id="app" class="h-screen flex flex-col overflow-hidden">
+  <!-- Header -->
+  <header class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between shadow-sm z-20">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-kiite-400 to-kiite-600 flex items-center justify-center shadow-lg shadow-kiite-500/30">
+        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+        </svg>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold gradient-text">Kiite</h1>
+        <p class="text-xs text-gray-500 dark:text-gray-400">Offline Neural Assistant</p>
+      </div>
+    </div>
+    
+    <div class="flex items-center gap-2">
+      <div id="pipeline-status" class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-700 text-xs font-medium">
+        <div id="status-dot" class="w-2 h-2 rounded-full bg-gray-400"></div>
+        <span id="status-text">Initializing</span>
+      </div>
+      
+      <button id="theme-toggle" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+        <svg id="sun-icon" class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+        </svg>
+        <svg id="moon-icon" class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 0 008.354-5.646z"></path>
+        </svg>
+      </button>
+      
+      <button id="settings-toggle" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="flex-1 flex overflow-hidden relative">
+    <!-- Chat Area -->
+    <main class="flex-1 flex flex-col bg-gray-50 dark:bg-gray-900">
+      <!-- Pipeline Indicator -->
+      <div id="pipeline-banner" class="bg-gradient-to-r from-kiite-500/10 to-kiite-600/10 border-b border-kiite-500/20 px-4 py-2">
+        <div class="max-w-4xl mx-auto flex items-center justify-between text-sm">
+          <div class="flex items-center gap-4 overflow-x-auto">
+            <div class="flex items-center gap-2 whitespace-nowrap" id="step-embeddings">
+              <div class="w-5 h-5 rounded-full border-2 border-gray-300 dark:border-gray-600 flex items-center justify-center">
+                <div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 hidden"></div>
+              </div>
+              <span class="text-gray-500 dark:text-gray-400">Loading 50MB Model</span>
+            </div>
+            <svg class="w-4 h-4 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+            </svg>
+            <div class="flex items-center gap-2 whitespace-nowrap" id="step-brain">
+              <div class="w-5 h-5 rounded-full border-2 border-gray-300 dark:border-gray-600 flex items-center justify-center">
+                <div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 hidden"></div>
+              </div>
+              <span class="text-gray-500 dark:text-gray-400">Brain.js Online</span>
+            </div>
+            <svg class="w-4 h-4 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+            </svg>
+            <div class="flex items-center gap-2 whitespace-nowrap" id="step-ready">
+              <div class="w-5 h-5 rounded-full border-2 border-gray-300 dark:border-gray-600 flex items-center justify-center">
+                <div class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 hidden"></div>
+              </div>
+              <span class="text-gray-500 dark:text-gray-400">Ready to Mine</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div id="chat-container" class="flex-1 overflow-y-auto px-4 py-6">
+        <div class="max-w-4xl mx-auto space-y-6" id="messages">
+          <div class="flex gap-3 animate-fade-in">
+            <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-kiite-400 to-kiite-600 flex items-center justify-center flex-shrink-0 shadow-lg">
+              <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+              </svg>
+            </div>
+            <div class="flex-1 bg-white dark:bg-gray-800 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm border border-gray-200 dark:border-gray-700">
+              <p class="text-sm leading-relaxed">Halo! Aku Kiite, asisten neural kampus kamu. Model embeddings sedang dimuat untuk pertama kali. Semua akan berjalan 100% offline setelah ini. Tanyakan apa aja tentang SIAK, UKT, TPA, atau KRS!</p>
+              <p class="text-xs text-gray-400 dark:text-gray-500 mt-2">Sistem AI lokal • Cache aktif</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Area -->
+      <div class="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 py-4">
+        <div class="max-w-4xl mx-auto">
+          <div class="flex items-end gap-2">
+            <div class="flex-1 relative">
+              <textarea id="user-input" rows="1" placeholder="Tanya Kiite..." disabled
+                class="w-full resize-none rounded-2xl bg-gray-100 dark:bg-gray-700 border-0 px-4 py-3 pr-12 text-sm focus:ring-2 focus:ring-kiite-500 outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              ></textarea>
+              <button id="send-btn" disabled class="absolute right-2 bottom-2 p-2 rounded-xl bg-kiite-500 hover:bg-kiite-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-white transition-all">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">Kiite berjalan 100% offline di browser kamu. Data tidak pernah keluar.</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Settings Panel -->
+    <aside id="settings-panel" class="absolute md:relative right-0 top-0 h-full w-full md:w-96 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 shadow-2xl transform translate-x-full transition-transform duration-300 z-30 overflow-y-auto">
+      <div class="p-6 space-y-6">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-bold">Neural Training Center</h2>
+          <button id="close-settings" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors md:hidden">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="space-y-4">
+          <div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-4 space-y-3">
+            <h3 class="font-semibold text-sm flex items-center gap-2">
+              <svg class="w-4 h-4 text-kiite-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+              </svg>
+              YML Training Data
+            </h3>
+            <textarea id="yml-input" rows="12" class="w-full text-xs font-mono bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 focus:ring-2 focus:ring-kiite-500 outline-none" placeholder="Masukkan data training YML..."></textarea>
+            <p class="text-xs text-gray-500 dark:text-gray-400">Format: - input: "pertanyaan" output: "jawaban"</p>
+          </div>
+
+          <button id="load-default" class="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-sm font-medium transition-colors">
+            Load Campus Humor Data
+          </button>
+
+          <div class="bg-gradient-to-br from-kiite-500/10 to-kiite-600/10 rounded-xl p-4 border border-kiite-500/20">
+            <h3 class="font-semibold text-sm mb-2 flex items-center gap-2">
+              <svg class="w-4 h-4 text-kiite-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+              </svg>
+              Neural Mining
+            </h3>
+            <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">Train Brain.js LSTM di atas embeddings untuk response yang lebih cerdas.</p>
+            <button id="start-mining" disabled class="w-full px-4 py-3 bg-kiite-500 hover:bg-kiite-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-all shadow-lg shadow-kiite-500/30 disabled:shadow-none flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              Start Mining
+            </button>
+            <div id="mining-progress" class="hidden mt-3">
+              <div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div id="progress-bar" class="h-full bg-gradient-to-r from-kiite-400 to-kiite-600 transition-all duration-300" style="width: 0%"></div>
+              </div>
+              <p id="progress-text" class="text-xs text-gray-600 dark:text-gray-400 mt-2 text-center">Initializing...</p>
+            </div>
+          </div>
+
+          <div class="bg-gray-50 dark:bg-gray-900 rounded-xl p-4 space-y-2">
+            <h3 class="font-semibold text-sm">Model Stats</h3>
+            <div class="text-xs space-y-1.5 text-gray-600 dark:text-gray-400">
+              <div class="flex justify-between">
+                <span>Embeddings:</span>
+                <span id="stat-embed" class="font-mono">Loading...</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Brain.js:</span>
+                <span id="stat-brain" class="font-mono">Standby</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Cache:</span>
+                <span id="stat-cache" class="font-mono">Checking...</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Training Pairs:</span>
+                <span id="stat-pairs" class="font-mono">0</span>
+              </div>
+            </div>
+          </div>
+
+          <button id="clear-cache" class="w-full px-4 py-2 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium transition-colors">
+            Clear Cache & Reset
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script type="module">
+  import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+  import 'https://unpkg.com/brain.js@2.0.0-beta.23/dist/brain-browser.min.js';
+  import 'https://unpkg.com/js-yaml@4.1.0/dist/js-yaml.min.js';
+
+  // Configure transformers to use cache
+  env.allowLocalModels = false;
+  env.useBrowserCache = true;
+
+  // State
+  let embedder = null;
+  let brainNet = null;
+  let trainingData = [];
+  let isReady = false;
+  let isMining = false;
+
+  // Default YML data - Campus humor SIAK, UKT, TPA, KRS
+  const defaultYML = `- input: "siak error terus"
+  output: "SIAK lagi mood swing ya? 😅 Coba refresh dulu, kalau masih error tunggu 5 menit. Server kampus emang suka gitu, apalagi pas musim KRS. Pro tip: buka SIAK jam 3 pagi, sepi kayak hati mahasiswa pas tanggal tua."
+
+- input: "ukt kapan bayar"
+  output: "UKT biasanya H-7 sebelum semester mulai. Cek SIAK > Keuangan buat tanggal pastinya. Jangan sampe telat ya, nanti di-blokir SIAK dan gak bisa KRS. Dompet nangis, SKS melayang 💸"
+
+- input: "cara daftar krs"
+  output: "Login SIAK > Akademik > KRS > Pilih mata kuliah > Submit. Tapi warning: server KRS lebih labil dari mantan. Siapin kopi, doa, dan koneksi dewa. Jam 00.00 biasanya war dimulai 🎮"
+
+- input: "tpa itu apa"
+  output: "TPA = Tes Potensi Akademik. Buat mahasiswa baru sih, tes logika, verbal, numerik. Santai aja, gak susah kok. Lebih susah nahan lapar pas nunggu dosen yang telat 1 jam 😴"
+
+- input: "krs penuh terus"
+  output: "KRS penuh = classic problem. Solusi: 1) Refresh terus kayak stalker mantan, 2) Cari kelas lain, 3) Mepet dosen pas jam perwalian, 4) Pasrah dan ambil semester depan. Semangat pejuang SKS! 💪"
+
+- input: "ukt kemahalan"
+  output: "Relate 😭 UKT emang berasa bayar kos-kosan tapi gak dapet kamar. Coba ajuin banding UKT ke BAK ya, siapin dokumen lengkap. Atau cari beasiswa, banyak kok. Kita mahasiswa, kreatif cari duit 💰"
+
+- input: "jadwal krs kapan"
+  output: "Jadwal KRS biasanya diumumin di web fakultas atau grup WA angkatan. Cek SIAK juga. Biasanya 2 minggu sebelum semester mulai. Set alarm ya, kalau kelewat nyesel seumur hidup SKS nya 😱"
+
+- input: "siak lemot"
+  output: "SIAK lemot = fitur, bukan bug 😎 Jam-jam sibuk emang gitu: pagi jam 8-10, siang jam 1-3. Buka SIAK pas tengah malem aja, lancar jaya. Atau pas sahur, sekalian ibadah 👍"
+
+- input: "cara cek nilai di siak"
+  output: "Login SIAK > Nilai > KHS. Kalau belum keluar, berarti dosennya masih healing atau lupa upload. Chat aja dosennya baik-baik, jangan nge-gas. Ingat, IPK di tangan dosen 🙏"
+
+- input: "tpa susah gak"
+  output: "TPA gak sesusah cari parkiran pas jam kuliah pagi 😂 Latihan soal aja dari google, banyak kok. Yang penting tenang, jangan panik. Panik cuma bikin kamu salah ngisi lingkaran jawaban."`;
+
+  // DOM Elements
+  const $ = id => document.getElementById(id);
+  const messagesEl = $('messages');
+  const userInput = $('user-input');
+  const sendBtn = $('send-btn');
+  const ymlInput = $('yml-input');
+  const startMiningBtn = $('start-mining');
+  const settingsPanel = $('settings-panel');
+  const themeToggle = $('theme-toggle');
+  const settingsToggle = $('settings-toggle');
+  const closeSettings = $('close-settings');
+  const loadDefaultBtn = $('load-default');
+  const clearCacheBtn = $('clear-cache');
+  const miningProgress = $('mining-progress');
+  const progressBar = $('progress-bar');
+  const progressText = $('progress-text');
+
+  // Theme Management
+  const initTheme = () => {
+    const saved = localStorage.getItem('kiite-theme');
+    if (saved === 'light') document.documentElement.classList.remove('dark');
+  };
+
+  themeToggle.addEventListener('click', () => {
+    document.documentElement.classList.toggle('dark');
+    localStorage.setItem('kiite-theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light');
+  });
+
+  // Settings Panel
+  settingsToggle.addEventListener('click', () => {
+    settingsPanel.classList.remove('translate-x-full');
+  });
+  closeSettings.addEventListener('click', () => {
+    settingsPanel.classList.add('translate-x-full');
+  });
+
+  // Auto-resize textarea
+  userInput.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 200) + 'px';
+  });
+
+  // Update pipeline UI
+  const updatePipelineStep = (step, status) => {
+    const steps = {
+      embeddings: $('step-embeddings'),
+      brain: $('step-brain'),
+      ready: $('step-ready')
+    };
+    
+    const el = steps[step];
+    if (!el) return;
+    
+    const dot = el.querySelector('div > div');
+    const border = el.querySelector('div');
+    const text = el.querySelector('span');
+    
+    if (status === 'active') {
+      border.classList.remove('border-gray-300', 'dark:border-gray-600');
+      border.classList.add('border-kiite-500', 'animate-pulse-slow');
+      dot.classList.remove('hidden', 'bg-gray-300', 'dark:bg-gray-600');
+      dot.classList.add('bg-kiite-500');
+      text.classList.remove('text-gray-500', 'dark:text-gray-400');
+      text.classList.add('text-kiite-600', 'dark:text-kiite-400', 'font-semibold');
+    } else if (status === 'done') {
+      border.classList.remove('border-gray-300', 'dark:border-gray-600', 'border-kiite-500', 'animate-pulse-slow');
+      border.classList.add('border-green-500', 'bg-green-500');
+      dot.classList.remove('hidden');
+      dot.classList.add('bg-white');
+      text.classList.remove('text-gray-500', 'dark:text-gray-400');
+      text.classList.add('text-green-600', 'dark:text-green-400');
+    }
+  };
+
+  const updateStatus = (text, type = 'loading') => {
+    const statusText = $('status-text');
+    const statusDot = $('status-dot');
+    statusText.textContent = text;
+    
+    statusDot.className = 'w-2 h-2 rounded-full';
+    if (type === 'ready') statusDot.classList.add('bg-green-500');
+    else if (type === 'error') statusDot.classList.add('bg-red-500');
+    else statusDot.classList.add('bg-yellow-500', 'animate-pulse-slow');
+  };
+
+  // Update stats
+  const updateStats = () => {
+    $('stat-embed').textContent = embedder ? 'Ready' : 'Loading...';
+    $('stat-brain').textContent = brainNet ? 'Trained' : 'Standby';
+    $('stat-pairs').textContent = trainingData.length;
+    
+    if ('caches' in window) {
+      caches.has('transformers-cache').then(exists => {
+        $('stat-cache').textContent = exists ? 'Active ✓' : 'Empty';
+      });
+    }
+  };
+
+  // Add message to chat
+  const addMessage = (text, isUser = false, isTyping = false) => {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'flex gap-3 animate-slide-up';
+    
+    if (isUser) {
+      messageDiv.innerHTML = `
+        <div class="flex-1"></div>
+        <div class="max-w-[80%] bg-kiite-500 text-white rounded-2xl rounded-tr-sm px-4 py-3 shadow-sm">
+          <p class="text-sm leading-relaxed">${text}</p>
+        </div>
+        <div class="w-8 h-8 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center flex-shrink-0">
+          <svg class="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+          </svg>
+        </div>
+      `;
+    } else {
+      messageDiv.innerHTML = `
+        <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-kiite-400 to-kiite-600 flex items-center justify-center flex-shrink-0 shadow-lg">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+          </svg>
+        </div>
+        <div class="flex-1 bg-white dark:bg-gray-800 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm border border-gray-200 dark:border-gray-700">
+          <p class="text-sm leading-relaxed ${isTyping ? 'message-typing' : ''}">${text}</p>
+        </div>
+      `;
+    }
+    
+    messagesEl.appendChild(messageDiv);
+    messagesEl.parentElement.scrollTop = messagesEl.parentElement.scrollHeight;
+    return messageDiv;
+  };
+
+  // Cosine similarity
+  const cosineSimilarity = (a, b) => {
+    const dot = a.reduce((sum, val, i) => sum + val * b[i], 0);
+    const magA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
+    const magB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
+    return dot / (magA * magB);
+  };
+
+  // Initialize embeddings model
+  const initEmbeddings = async () => {
+    try {
+      updatePipelineStep('embeddings', 'active');
+      updateStatus('Loading 50MB Model');
+      
+      addMessage('Memuat model embeddings all-MiniLM-L6-v2 (~23MB). Pertama kali butuh waktu, selanjutnya dari cache offline...', false);
+      
+      embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+        quantized: true,
+        progress_callback: (progress) => {
+          if (progress.status === 'download') {
+            const pct = Math.round((progress.loaded / progress.total) * 100);
+            updateStatus(`Downloading: ${pct}%`);
+          }
+        }
+      });
+      
+      updatePipelineStep('embeddings', 'done');
+      updateStatus('Model Ready', 'ready');
+      $('stat-embed').textContent = 'Ready';
+      
+      addMessage('Model embeddings siap! Sekarang inisialisasi Brain.js...', false);
+      await initBrain();
+      
+    } catch (err) {
+      console.error('Embedding init error:', err);
+      updateStatus('Model Error', 'error');
+      addMessage(`Error loading model: ${err.message}. Cek koneksi internet untuk first load.`, false);
+    }
+  };
+
+  // Initialize Brain.js
+  const initBrain = async () => {
+    try {
+      updatePipelineStep('brain', 'active');
+      
+      brainNet = new brain.recurrent.LSTM();
+      updatePipelineStep('brain', 'done');
+      updateStatus('Brain.js Online', 'ready');
+      $('stat-brain').textContent = 'Standby';
+      
+      updatePipelineStep('ready', 'active');
+      updateStatus('Ready to Mine', 'ready');
+      
+      isReady = true;
+      userInput.disabled = false;
+      sendBtn.disabled = false;
+      startMiningBtn.disabled = false;
+      
+      addMessage('Kiite sudah online! 🎉 Kamu bisa chat langsung atau train aku dengan data YML di Settings > Start Mining untuk response yang lebih cerdas.', false);
+      
+    } catch (err) {
+      console.error('Brain init error:', err);
+      addMessage(`Brain.js error: ${err.message}`, false);
+    }
+  };
+
+  // Parse YML training data
+  const parseYML = (ymlText) => {
+    try {
+      const data = jsyaml.load(ymlText);
+      if (!Array.isArray(data)) throw new Error('YML harus berupa array');
+      
+      const valid = data.filter(item => item.input && item.output);
+      if (valid.length === 0) throw new Error('Tidak ada pasangan input/output valid');
+      
+      return valid;
+    } catch (err) {
+      throw new Error(`YML Parse Error: ${err.message}`);
+    }
+  };
+
+  // Train Brain.js
+  const trainBrain = async () => {
+    if (isMining) return;
+    
+    try {
+      const ymlText = ymlInput.value.trim();
+      if (!ymlText) {
+        alert('Masukkan YML training data dulu!');
+        return;
+      }
+      
+      const data = parseYML(ymlText);
+      trainingData = data;
+      updateStats();
+      
+      isMining = true;
+      startMiningBtn.disabled = true;
+      miningProgress.classList.remove('hidden');
+      
+      addMessage(`Memulai neural mining dengan ${data.length} training pairs...`, false);
+      
+      // Prepare training data for LSTM
+      const trainSet = data.map(d => ({
+        input: d.input.toLowerCase(),
+        output: d.output
+      }));
+      
+      let iterations = 0;
+      const maxIter = 200;
+      
+      await brainNet.trainAsync(trainSet, {
+        iterations: maxIter,
+        errorThresh: 0.005,
+        log: (stats) => {
+          iterations++;
+          const pct = Math.round((iterations / maxIter) * 100);
+          progressBar.style.width = pct + '%';
+          progressText.textContent = `Training: ${pct}% (Error: ${stats.error.toFixed(4)})`;
+        },
+        logPeriod: 10
+      });
+      
+      progressBar.style.width = '100%';
+      progressText.textContent = 'Training Complete! ✓';
+      
+      updatePipelineStep('ready', 'done');
+      updateStatus('Neural Network Trained', 'ready');
+      $('stat-brain').textContent = 'Trained';
+      
+      setTimeout(() => {
+        miningProgress.classList.add('hidden');
+        startMiningBtn.disabled = false;
+        isMining = false;
+        addMessage(`Neural mining selesai! 🎓 Kiite sekarang udah lebih pinter jawab soal kampus. Coba tanya apa aja!`, false);
+      }, 1000);
+      
+    } catch (err) {
+      console.error('Training error:', err);
+      isMining = false;
+      startMiningBtn.disabled = false;
+      miningProgress.classList.add('hidden');
+      addMessage(`Training error: ${err.message}`, false);
+    }
+  };
+
+  // Get AI response
+  const getResponse = async (userText) => {
+    if (!isReady) return 'Model belum siap, tunggu sebentar ya...';
+    
+    try {
+      // If brain is trained, use it
+      if (brainNet && trainingData.length > 0) {
+        try {
+          const output = brainNet.run(userText.toLowerCase());
+          if (output && output.length > 10) return output;
+        } catch (e) {
+          console.log('Brain run fallback to embeddings');
+        }
+      }
+      
+      // Fallback: use embeddings similarity
+      if (embedder && trainingData.length > 0) {
+        const userEmbedding = await embedder(userText, { pooling: 'mean', normalize: true });
+        const userVec = Array.from(userEmbedding.data);
+        
+        let bestMatch = null;
+        let bestScore = -1;
+        
+        for (const item of trainingData) {
+          const itemEmbedding = await embedder(item.input, { pooling: 'mean', normalize: true });
+          const itemVec = Array.from(itemEmbedding.data);
+          const score = cosineSimilarity(userVec, itemVec);
+          
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = item;
+          }
+        }
+        
+        if (bestMatch && bestScore > 0.5) {
+          return bestMatch.output + `\n\n_Match score: ${(bestScore * 100).toFixed(0)}%_`;
+        }
+      }
+      
+      // Default responses
+      const defaults = [
+        'Hmm, aku belum paham pertanyaan itu. Coba train aku dengan YML data di Settings biar lebih pinter!',
+        'Pertanyaan bagus! Tapi aku belum punya data tentang itu. Tambahin ke training data ya.',
+        'Waduh, out of context nih. Kasih aku training data tentang topik ini di Settings > Start Mining.',
+        'Belum ada di database neural aku. Yuk mining data baru biar aku makin cerdas!'
+      ];
+      return defaults[Math.floor(Math.random() * defaults.length)];
+      
+    } catch (err) {
+      console.error('Response error:', err);
+      return 'Error processing request. Coba lagi ya.';
+    }
+  };
+
+  // Handle send message
+  const handleSend = async () => {
+    const text = userInput.value.trim();
+    if (!text || !isReady) return;
+    
+    addMessage(text, true);
+    userInput.value = '';
+    userInput.style.height = 'auto';
+    sendBtn.disabled = true;
+    
+    const typingMsg = addMessage('Kiite sedang berpikir...', false, true);
+    
+    const response = await getResponse(text);
+    typingMsg.remove();
+    addMessage(response, false);
+    
+    sendBtn.disabled = false;
+    userInput.focus();
+  };
+
+  // Event listeners
+  sendBtn.addEventListener('click', handleSend);
+  userInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  });
+
+  startMiningBtn.addEventListener('click', trainBrain);
+
+  loadDefaultBtn.addEventListener('click', () => {
+    ymlInput.value = defaultYML;
+    const data = parseYML(defaultYML);
+    trainingData = data;
+    updateStats();
+    addMessage(`Loaded ${data.length} default campus humor training pairs. Klik Start Mining untuk mulai training!`, false);
+  });
+
+  clearCacheBtn.addEventListener('click', async () => {
+    if (confirm('Hapus semua cache dan reset model? Perlu download ulang ~23MB.')) {
+      if ('caches' in window) {
+        await caches.delete('transformers-cache');
+      }
+      localStorage.clear();
+      location.reload();
+    }
+  });
+
+  // Load default YML to textarea
+  ymlInput.value = defaultYML;
+
+  // Initialize
+  initTheme();
+  updateStats();
+  initEmbeddings();
+</script>
 </body>
 </html>
